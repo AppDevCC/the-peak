@@ -149,6 +149,13 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .links .buy { color: var(--deep); background: var(--lantern); border-color: var(--lantern); }
 .links .ca { font-family: var(--mono); text-transform: none; letter-spacing: 0; }
+.links .soon { opacity: 0.55; }
+.ca-panel .row { display: flex; gap: 6px; margin-top: 8px; }
+.ca-panel input {
+  flex: 1; min-width: 0; padding: 8px;
+  font: 12px/1.2 var(--mono); color: var(--snow);
+  background: var(--navy); border: 1px solid var(--glacier);
+}
 .ruler {
   position: absolute; left: 0; top: 0; bottom: 0; width: 124px; overflow: hidden;
   background: linear-gradient(90deg, #061018e0, #061018c7 70%, #06101800);
@@ -231,7 +238,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .readout.folded .crew, .readout.folded .treasury, .readout.folded .burned, .readout.folded .status, .readout.folded .links { display: none; }
 .backdrop { position: absolute; inset: 0; z-index: 5; pointer-events: auto; background: #06101873; }
-.sheet[hidden], .backdrop[hidden], .find[hidden], .card[hidden], .banner[hidden] { display: none !important; }
+.sheet[hidden], .backdrop[hidden], .find[hidden], .card[hidden], .banner[hidden], .sim[hidden] { display: none !important; }
 .sheet {
   display: flex; flex-direction: column; position: absolute; top: 0; right: 0; bottom: 0;
   z-index: 6; width: min(420px, 90vw); pointer-events: auto;

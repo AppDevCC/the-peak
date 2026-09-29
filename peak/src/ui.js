@@ -1,10 +1,11 @@
 import {
   BRAND, TAGLINE, ABOUT, CAMPS, SEALED_CREW, SEALED_CAP, FLARE_STYLES,
   formatUsd, formatTok, shortWallet, capToPitch, campForCap, nextCamp, PITCHES,
+  buyUrl, saveMint,
 } from "./config.js";
-import { coldPitches, findClimber, hire, fall, jumpToCap, sendFlare } from "./sim.js";
+import { coldPitches, findClimber, hire, fall, jumpToCap, sendFlare, beginLive, beginSim } from "./sim.js";
 
-export function mountUI(root, store, scene, audio) {
+export function mountUI(root, store, scene, audio, feed) {
   root.innerHTML = `
     <div class="ruler" id="ruler">
       <div class="rail"></div>
@@ -85,6 +86,11 @@ export function mountUI(root, store, scene, audio) {
     <section class="sheet" id="sheet" hidden>
       <header><span>${BRAND}</span><button id="sheet-close">Close</button></header>
       <div class="sheet-body" id="sheet-body">
+        <details class="panel ca-panel" open>
+          <summary>Contract</summary>
+          <p id="ca-note">When $PEAK launches, paste the Solana mint. Market cap drives the mountain. Buys rope in, sells fall.</p>
+          <div class="row"><input id="ca-input" spellcheck="false" placeholder="Solana mint" /><button id="ca-set">Go live</button></div>
+        </details>
         <details class="panel speak" open>
           <summary>Burn $PEAK · send a flare</summary>
           <p class="s-intro">Burn $PEAK and your words arc over the mountain. Nobody receives the tokens: they are destroyed.</p>
@@ -153,6 +159,40 @@ export function mountUI(root, store, scene, audio) {
   $("sheet-close").addEventListener("click", () => { $("sheet").hidden = true; $("backdrop").hidden = true; });
   $("backdrop").addEventListener("click", () => { $("sheet").hidden = true; $("backdrop").hidden = true; });
 
+  function goLive(raw) {
+    const mint = saveMint(raw);
+    if (!mint) return false;
+    store.mint = mint;
+    beginLive(store);
+    feed?.watch(mint);
+    if ($("ca-note")) $("ca-note").textContent = "Market cap is live from the coin.";
+    return true;
+  }
+
+  root.addEventListener("click", (e) => {
+    const ca = e.target.closest(".ca");
+    if (!ca) return;
+    e.preventDefault();
+    if (store.mint) {
+      navigator.clipboard?.writeText(store.mint);
+      showBanner("CA copied");
+      return;
+    }
+    if (document.body.classList.contains("covered")) return;
+    $("sheet").hidden = false;
+    $("backdrop").hidden = false;
+    $("ca-input")?.focus();
+  });
+  $("ca-set")?.addEventListener("click", () => {
+    if (!goLive($("ca-input").value)) {
+      if ($("ca-note")) $("ca-note").textContent = "That is not a Solana mint.";
+    }
+  });
+  $("ca-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("ca-set")?.click();
+  });
+  if (store.mint && $("ca-input")) $("ca-input").value = store.mint;
+
   root.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
     root.querySelectorAll("[data-view]").forEach((x) => x.classList.toggle("on", x === b));
     scene.setView(b.dataset.view, mine);
@@ -169,18 +209,18 @@ export function mountUI(root, store, scene, audio) {
   root.querySelector("[data-zoom='in']").addEventListener("click", () => scene.zoomBy(1.25));
 
   root.querySelector("[data-feed='sim']").addEventListener("click", () => {
-    store.mode = "sim";
-    root.querySelector("[data-feed='sim']").classList.add("on");
-    root.querySelector("[data-feed='live']").classList.remove("on");
-    $("r-status").textContent = "Simulator · live mountain";
-    $("r-status").className = "status sim";
+    beginSim(store);
   });
   root.querySelector("[data-feed='live']").addEventListener("click", () => {
-    store.mode = "live";
-    root.querySelector("[data-feed='live']").classList.add("on");
-    root.querySelector("[data-feed='sim']").classList.remove("on");
-    $("r-status").textContent = "Live feed · waiting for a price";
-    $("r-status").className = "status live";
+    if (!store.mint) {
+      $("sheet").hidden = false;
+      $("backdrop").hidden = false;
+      $("ca-input")?.focus();
+      store.feedStatus = "Live feed · paste the mint";
+      return;
+    }
+    beginLive(store);
+    feed?.watch(store.mint);
   });
 
   $("sound").addEventListener("click", () => {
@@ -237,7 +277,7 @@ export function mountUI(root, store, scene, audio) {
     if (!b) return;
     flareStyle = FLARE_STYLES.find((s) => s.style === +b.dataset.style);
     $("s-styles").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
-    $("s-cost").textContent = `≈ ${formatTok(5400 * flareStyle.usd)} $PEAK for $${flareStyle.usd} at the price right now`;
+    $("s-cost").textContent = flareCost();
   });
   $("s-send").addEventListener("click", () => {
     const text = $("s-text").value.trim() || "SUMMIT";
@@ -245,7 +285,7 @@ export function mountUI(root, store, scene, audio) {
     audio.flare();
     showBanner(text.toUpperCase());
   });
-  $("s-cost").textContent = "≈ 5,400 $PEAK for $1 at the price right now";
+  $("s-cost").textContent = flareCost();
 
   let recorder = null;
   $("record").addEventListener("click", async () => {
@@ -269,6 +309,14 @@ export function mountUI(root, store, scene, audio) {
       $("record").classList.remove("on");
     }
   });
+
+  function flareCost() {
+    const usd = flareStyle.usd;
+    if (store.priceUsd > 0) {
+      return `≈ ${formatTok(usd / store.priceUsd)} $PEAK for $${usd} at the live price`;
+    }
+    return `≈ ${formatTok(5400 * usd)} $PEAK for $${usd} at the price right now`;
+  }
 
   function openCard(c) {
     $("card").hidden = false;
@@ -368,6 +416,38 @@ export function mountUI(root, store, scene, audio) {
     $("r-burned").textContent = formatTok(store.burned) + " $PEAK";
     $("t-babel").textContent = formatTok(store.treasury.peak) + " $PEAK";
     $("t-gold").textContent = store.treasury.gold.toFixed(3) + " gold";
+
+    const live = store.mode === "live";
+    $("sim").hidden = live;
+    root.querySelector("[data-feed='sim']").classList.toggle("on", !live);
+    root.querySelector("[data-feed='live']").classList.toggle("on", live);
+    if (live) {
+      $("r-status").textContent = store.feedStatus || "Live feed";
+      $("r-status").className = store.liveOk ? "status live" : "status";
+    } else {
+      $("r-status").textContent = "Simulator · live mountain";
+      $("r-status").className = "status sim";
+    }
+    const mint = store.mint;
+    root.querySelectorAll(".ca").forEach((b) => {
+      b.classList.toggle("soon", !mint);
+      b.textContent = mint ? "Copy CA" : "CA soon";
+    });
+    const href = buyUrl(mint, store.pairUrl);
+    root.querySelectorAll("a.buy").forEach((a) => {
+      a.classList.toggle("soon", !href);
+      if (href) {
+        a.href = href;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = "Buy $PEAK";
+      } else {
+        a.href = "#";
+        a.removeAttribute("target");
+        a.textContent = "Buy soon";
+      }
+    });
+    $("s-cost").textContent = flareCost();
 
     $("left-list").innerHTML = store.log.map((l) =>
       `<li><span class="who">${shortWallet(l.wallet)}</span><span class="how">${l.how}</span><span class="pnl ${l.up ? "up" : "down"}">${l.pnl >= 0 ? "+" : ""}${Math.round(l.pnl * 100)}%</span></li>`

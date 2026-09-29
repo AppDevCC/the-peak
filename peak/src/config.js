@@ -1,6 +1,10 @@
 export const TICKER = "PEAK";
 export const BRAND = "THE PEAK";
 export const TAGLINE = "They never summited. We will.";
+/** Paste the Solana mint here when $PEAK launches. Until then the site stays on the simulator. */
+export const MINT = "";
+export const CHAIN = "solana";
+export const MINT_KEY = "peak.mint";
 export const ABOUT = [
   "The mountain, climbed live by its holders. Every wallet is a rope team. Buys join the line, sells fall, and the mountain rises with the market cap.",
   "Cache only drops on camps whose original crew is still on the wall. Sell and you fall — that camp goes cold, and your unpaid cache stays for whoever did not jump.",
@@ -101,6 +105,45 @@ export function formatTok(n) {
 export function shortWallet(w) {
   if (!w) return "—";
   return w.slice(0, 4) + "…" + w.slice(-4);
+}
+
+export function isMint(v) {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(v || "").trim());
+}
+
+export function resolveMint() {
+  if (isMint(MINT)) return MINT.trim();
+  try {
+    const q = new URLSearchParams(location.search);
+    const fromUrl = q.get("ca") || q.get("mint");
+    if (isMint(fromUrl)) return fromUrl.trim();
+  } catch {
+    /* ignore */
+  }
+  try {
+    const saved = localStorage.getItem(MINT_KEY);
+    if (isMint(saved)) return saved.trim();
+  } catch {
+    /* ignore */
+  }
+  return "";
+}
+
+export function saveMint(v) {
+  if (!isMint(v)) return "";
+  const mint = v.trim();
+  try {
+    localStorage.setItem(MINT_KEY, mint);
+  } catch {
+    /* ignore */
+  }
+  return mint;
+}
+
+export function buyUrl(mint, pairUrl) {
+  if (pairUrl) return pairUrl;
+  if (mint) return "https://dexscreener.com/solana/" + mint;
+  return "";
 }
 
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";

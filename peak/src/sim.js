@@ -69,6 +69,12 @@ export function createSim() {
     log: [],
     tick: 0,
     vol: 0,
+    mint: "",
+    pairUrl: "",
+    priceUsd: 0,
+    liveReady: false,
+    liveOk: false,
+    feedStatus: "",
   };
 
   recount(state);
@@ -139,7 +145,7 @@ export function hire(s, n = 1, whale = false) {
       pushLog(s, { wallet: c.wallet, how: "roped in", pnl: Math.random() * 0.4, up: true });
     }
   }
-  s.targetCap *= 1 + 0.004 * n * (whale ? 3 : 1);
+  if (s.mode === "sim") s.targetCap *= 1 + 0.004 * n * (whale ? 3 : 1);
   s.vol += n * (whale ? 900 : 120);
   recount(s);
 }
@@ -158,7 +164,7 @@ export function fall(s, n = 1, whale = false) {
     const pnl = whale ? -(0.2 + Math.random() * 0.7) : (Math.random() * 1.4 - 0.9);
     pushLog(s, { wallet: c.wallet, how: "fell", pnl, up: pnl >= 0 });
   }
-  s.targetCap *= 1 - 0.005 * take.length * (whale ? 2.2 : 1);
+  if (s.mode === "sim") s.targetCap *= 1 - 0.005 * take.length * (whale ? 2.2 : 1);
   s.vol += take.length * (whale ? 700 : 90);
   recount(s);
 }
@@ -203,32 +209,8 @@ export function sendFlare(s, text, style) {
   s.banners.push(text.toUpperCase());
 }
 
-export function tickSim(s, dt) {
-  if (s.mode !== "sim" || s.paused) {
-    s.paydayPulse = Math.max(0, s.paydayPulse - dt * 0.6);
-    return;
-  }
-  const step = dt * s.speed;
-  s.tick += step;
-  s.vol *= 0.995;
-
-  if (s.pumping) s.targetCap *= 1 + 0.08 * step;
-  if (s.dumping) s.targetCap *= 1 - 0.07 * step;
-
-  s.targetCap = Math.max(2_400, s.targetCap);
-  s.cap += (s.targetCap - s.cap) * Math.min(1, 2.2 * step);
-  if (s.cap > s.ath) s.ath = s.cap;
-
-  if (Math.random() < 0.35 * step) hire(s, 1);
-  if (Math.random() < 0.28 * step) fall(s, 1);
-
-  s.paydayIn -= step;
-  if (s.paydayIn <= 0) {
-    payday(s);
-    s.paydayIn = 12 + Math.random() * 8;
-  }
+function animateFx(s, step) {
   s.paydayPulse = Math.max(0, s.paydayPulse - step * 0.55);
-
   for (const c of s.climbers) {
     if (c.arriving) c.arriving = Math.max(0, c.arriving - step * 1.6);
     if (c.cheer) c.cheer = Math.max(0, c.cheer - step * 1.1);
@@ -251,8 +233,113 @@ export function tickSim(s, dt) {
     e.t += step;
     return e.t < 1.6;
   });
+}
 
+export function tickSim(s, dt) {
+  const live = s.mode === "live";
+  if (s.paused) {
+    animateFx(s, dt * 0.6);
+    return;
+  }
+  const step = dt * (live ? 1 : s.speed);
+  s.tick += step;
+  s.vol *= 0.995;
+
+  if (!live) {
+    if (s.pumping) s.targetCap *= 1 + 0.08 * step;
+    if (s.dumping) s.targetCap *= 1 - 0.07 * step;
+    s.targetCap = Math.max(2_400, s.targetCap);
+  }
+
+  s.cap += (s.targetCap - s.cap) * Math.min(1, 2.2 * step);
+  if (s.cap > s.ath) s.ath = s.cap;
+
+  if (!live) {
+    if (Math.random() < 0.35 * step) hire(s, 1);
+    if (Math.random() < 0.28 * step) fall(s, 1);
+    s.paydayIn -= step;
+    if (s.paydayIn <= 0) {
+      payday(s);
+      s.paydayIn = 12 + Math.random() * 8;
+    }
+  }
+
+  animateFx(s, step);
   recount(s);
+}
+
+export function beginLive(s) {
+  s.mode = "live";
+  s.paused = false;
+  s.pumping = false;
+  s.dumping = false;
+  s.liveReady = false;
+  s.liveOk = false;
+  s.lastBuys = 0;
+  s.lastSells = 0;
+  s.priceUsd = 0;
+  s.feedStatus = "Live feed · looking up the coin";
+  s.climbers.length = 0;
+  s.events = [];
+  s.falls = [];
+  s.log = [];
+  s.cacheDrops = [];
+  s.workers = 0;
+  s.cap = 0;
+  s.targetCap = 0;
+  s.ath = 0;
+}
+
+export function beginSim(s) {
+  const mint = s.mint;
+  const pairUrl = s.pairUrl;
+  const priceUsd = s.priceUsd;
+  const next = createSim();
+  Object.keys(next).forEach((k) => {
+    s[k] = next[k];
+  });
+  s.mint = mint;
+  s.pairUrl = pairUrl;
+  s.priceUsd = priceUsd;
+}
+
+export function applyLiveQuote(s, q) {
+  if (!q || q.error) {
+    s.liveOk = false;
+    s.feedStatus = q?.error || "Live feed · waiting for a price";
+    return;
+  }
+  const cap = Number(q.marketCap);
+  if (!Number.isFinite(cap) || cap < 0) {
+    s.liveOk = false;
+    s.feedStatus = "Live feed · no market cap yet";
+    return;
+  }
+  if (!s.liveReady) {
+    s.cap = cap;
+    s.targetCap = cap;
+    s.ath = cap;
+    s.liveReady = true;
+    const net = Math.max(0, (q.buys || 0) - (q.sells || 0));
+    const n = Math.min(400, net || Math.min(32, q.buys || 0));
+    if (n) hire(s, n, n >= 40);
+    s.lastBuys = q.buys || 0;
+    s.lastSells = q.sells || 0;
+  } else {
+    s.targetCap = cap;
+    if (cap > s.ath) s.ath = cap;
+    const db = (q.buys || 0) - (s.lastBuys || 0);
+    const ds = (q.sells || 0) - (s.lastSells || 0);
+    if (db > 0) hire(s, Math.min(40, db), db >= 12);
+    if (ds > 0) fall(s, Math.min(40, ds), ds >= 12);
+    s.lastBuys = q.buys || 0;
+    s.lastSells = q.sells || 0;
+  }
+  s.priceUsd = q.priceUsd || 0;
+  if (q.url) s.pairUrl = q.url;
+  s.liveAt = Date.now();
+  s.liveOk = true;
+  s.feedStatus = "Live · market cap from the coin";
 }
 
 export function jumpToCap(s, cap) {
