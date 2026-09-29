@@ -1,0 +1,7 @@
+{
+  "name": "the-peak",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix peak install && npm --prefix peak run build"
+  }
+}
