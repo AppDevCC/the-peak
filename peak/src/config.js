@@ -140,9 +140,8 @@ export function saveMint(v) {
   return mint;
 }
 
-export function buyUrl(mint, pairUrl) {
-  if (pairUrl) return pairUrl;
-  if (mint) return "https://dexscreener.com/solana/" + mint;
+export function buyUrl(mint, _pairUrl) {
+  if (mint) return "https://pump.fun/coin/" + mint;
   return "";
 }
 
